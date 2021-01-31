@@ -4,7 +4,7 @@ Models and datasets for generative foreground modeling.
 
 ## Instructions
 
-You can see the requirements in [the `requirements.txt` file.](./requirements.txt). 
+You can see the requirements in the [`requirements.txt`](/requirements.txt) file. 
 
 Once you have installed the necessary packages, run files in `dustvaeder/` individually. For example, to preprocess the required datasets, run `python dustvaeder/datasets.py`. In order to run analysis, run `python dustvaeder.py`. Each of these scripts is configurable, see the source for details. (N.B, if you would like to train any of the models here, a GPU will be necessary.)
 
