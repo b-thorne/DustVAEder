@@ -1,5 +1,8 @@
+import os
+
 from absl import app
 from absl import flags
+from absl import logging
 
 import gin
 
@@ -14,6 +17,7 @@ from pathlib import Path
 
 from datasets import load_dataset
 from utils import rotate
+import plots 
 
 tfkl = tf.keras.layers
 tfk = tf.keras
@@ -22,12 +26,16 @@ tfb = tfp.bijectors
 tfpl = tfp.layers
 
 FLAGS = flags.FLAGS
+PROJECT_DIR = Path(os.path.dirname(__file__))
+RESULTS_DIR = "/global/cscratch1/sd/bthorne/dustvaeder/results"
+
 
 def ConvBatchLayer(x, filters, kernel_size, strides, activation='relu', padding='same', bn_axis=-1, kernel_initializer=glorot_uniform, momentum=0.9):
     x = tfkl.Conv2D(filters, kernel_size, strides=strides, padding=padding, activation=None, kernel_initializer=kernel_initializer())(x)
     x = tfkl.BatchNormalization(momentum=momentum, axis=bn_axis)(x)
     x = tfkl.Activation(activation)(x)
     return x
+
 
 def TransConvBatchLayer(x, filters, kernel_size, strides, bn_axis=-1, activation=tf.nn.relu, momentum=0.9):
     x = tfkl.BatchNormalization(momentum=momentum, axis=bn_axis)(x)
@@ -79,7 +87,7 @@ def ResNetIdentityBlock(x, filters, kernel_size):
 
   f1, f2, f3 = filters
 
-  x = ConcBatchLayer(x, f1, 1, 1)
+  x = ConvBatchLayer(x, f1, 1, 1)
   x = ConvBatchLayer(x, f2, kernel_size, 1)
   x = ConvBatchLayer(x, f3, 1, 1)
   
@@ -104,7 +112,7 @@ def ResNetConvBlock(x, filters, kernel_size, s=2):
     return x
 
 def ResNetEncoder(input_shape, latent_dimension):
-    X_input = tfkl.Input(input_shape)
+    x_input = tfkl.Input(input_shape)
 
     x = tfkl.Conv2D(64, (1, 1), strides=(2, 2), kernel_initializer=glorot_uniform(seed=0))(x_input)
     x = tfkl.BatchNormalization()(x)
@@ -130,7 +138,7 @@ def ResNetEncoder(input_shape, latent_dimension):
     x = ResNetIdentityBlock(x, [512, 512, 2048], 3)
     x = ResNetIdentityBlock(x, [512, 512, 2048], 3)
 
-    x = tfkl.AveragePooling2D(pool_size=(2, 2), padding='same')(X)
+    x = tfkl.AveragePooling2D(pool_size=(2, 2), padding='same')(x)
 
     x = tfkl.Flatten()(x)
     x = tfkl.Dense(tfpl.IndependentNormal.params_size(latent_dimension), activation=None)(x) 
@@ -162,7 +170,7 @@ class VAE(tf.keras.Model):
         if encoder_type == "conv":
             self._encoder = ConvEncoder(input_shape)
         if encoder_type == "ResNet":
-            self._encoder = ResNetEncoder
+            self._encoder = ResNetEncoder(input_shape, latent_dimension)
 
         if decoder_type == "transconv": 
             self._decoder = TransConvDecoder(latent_dimension, input_shape)
@@ -221,7 +229,7 @@ class VAE(tf.keras.Model):
         }
 
 def make_21011181_plots(test_dataset, vae):
-    import plots 
+    
     dr = iter(test_dataset)
     pred_true = np.zeros((3, 256, 256, 3))
     for i in range(3):
@@ -237,12 +245,29 @@ def make_21011181_plots(test_dataset, vae):
     fig.savefig("prior_sample.pdf", bbox_inches="tight")
 
 @gin.configurable("Dataset")
-def Dataset(label, batch_size):
+def Dataset(label, batch_size, seed=1234):
+    tf.random.set_seed(seed)
     return load_dataset(label, batch_size)
 
-@gin.configurable("eval", denylist=["test_dataset"])
-def Eval(test_dataset, vae):
+@gin.configurable("Eval", denylist=["test_dataset", "results_dir"])
+def Eval(test_dataset, results_dir, vae):
     eval_results = vae.evaluate(test_dataset)
+
+    batch = next(iter(test_dataset))
+    
+    truths = batch[:3]
+    predictions = vae(truths).mean().numpy()
+    fig, ax = plots.make_prediction_plot_with_residuals(truths[..., :1], predictions[..., :1], "")
+    fig.savefig(results_dir / "T_recon_w_res.pdf", bbox_inches="tight")
+
+    if batch.shape[-1] == 3:
+        fig, ax = plots.make_prediction_plot_with_residuals(truths[..., 1:2], predictions[..., 1:2], "", vlims=[-0.5, 0.5])
+        fig.savefig(results_dir / "Q_recon_w_res.pdf", bbox_inches="tight")
+
+        fig, ax = plots.make_prediction_plot_with_residuals(truths[..., 2:], predictions[..., 2:], "", vlims=[-0.5, 0.5])
+        fig.savefig(results_dir / "U_recon_w_res.pdf", bbox_inches="tight")
+    #fig, ax = plts.make_prior_sample_plot(prior_sample)
+    #fig.savefig(plot_dir / "prior_sample.pdf")
     return eval_results
 
 @gin.configurable("Train", denylist=["train_dataset", "val_dataset"])
@@ -251,9 +276,8 @@ def Train(train_dataset, val_dataset, vae, optimizer=tfk.optimizers.Adam, epochs
     history = vae.fit(train_dataset, epochs=epochs, validation_data=val_dataset)   
     return vae
 
-@gin.configurable("load", denylist=["saved_model_path"])
-def Load(saved_model_path, vae, optimizer=tfk.optimizers.Adam, input_shape=(256, 256, 1)):
-    vae = VAE(input_shape=input_shape)
+@gin.configurable("Load", denylist=["saved_model_path"])
+def Load(saved_model_path, vae, optimizer=tfk.optimizers.Adam):
     vae.compile(optimizer=optimizer)
     vae.load_weights(str(saved_model_path)).expect_partial()
     return vae
@@ -263,10 +287,19 @@ def main(argv):
     # parse the configuration file with hyperparameter settings
     gin.parse_config_file(FLAGS.gin_config)
 
-    # make directory for results to be saved if it doe not exist
-    results_dir = Path(FLAGS.results_dir).absolute()
-    results_dir.mkdir(exist_ok=True, parents=True)
-    saved_model_path = str(results_dir / "vae")
+    # make directory for results to be saved if it does not exist:
+    # i) for data products to be stored on scratch
+    results_dir_data = Path(RESULTS_DIR).absolute() / FLAGS.results_name
+    results_dir_data.mkdir(exist_ok=True, parents=True)
+    logging.info(f"Saving data products (including model) to {results_dir_data}")
+    saved_model_path = str(results_dir_data / "vae")
+    # ii) for corresponding plots and configs that need to be viewed
+    results_dir_plot = Path(PROJECT_DIR).absolute().parent / "results" / FLAGS.results_name
+    results_dir_plot.mkdir(exist_ok=True, parents=True)
+    logging.info(f"Saving readable outputs to {results_dir_plot}")
+    with open(results_dir_plot / "config.gin", "w") as f:
+        f.write(gin.operative_config_str())
+
 
     # Get dataset
     train_dataset, val_dataset, test_dataset, dataset_info = Dataset()
@@ -277,7 +310,7 @@ def main(argv):
         # save trained model
         vae.save_weights(saved_model_path, save_format='tf')
         # evaluate trained model 
-        Eval(test_dataset, vae)
+        Eval(test_dataset, results_dir_plot, vae)
 
     if FLAGS.mode == "training":
         # perform training
@@ -288,7 +321,7 @@ def main(argv):
     if FLAGS.mode == "eval":
         # evaluate pre-trained model
         vae = Load(saved_model_path, gin.REQUIRED)
-        eval_results = Eval(test_dataset, vae)
+        Eval(test_dataset, results_dir_plot, vae)
 
     if FLAGS.mode == "2101.11181":
         # make plots for paper arXiv:2101.11181
@@ -302,6 +335,7 @@ if __name__ == "__main__":
     flags.DEFINE_enum("dataset", "GNILC", ["GNILC", "MHD"], "Which dataset to use.")
     flags.DEFINE_enum("mode", "standard", ["standard", "training", "eval", "2101.11181"],  
         "Which mode to run in. Standard will train the model, and run the evaluations.")
-    flags.DEFINE_string("results_dir", "/global/cscratch1/sd/bthorne/dustvaeder/results/default", "Directory to be created for results.")
+    flags.DEFINE_string("results_name", "default", "Directory to be created for results.")
     flags.DEFINE_string("gin_config", "./configs/config.gin", "File containing the gin configuration.")
+
     app.run(main)

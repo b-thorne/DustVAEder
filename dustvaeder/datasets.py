@@ -44,15 +44,13 @@ def load_dataset(label, batch_size=8):
         .map(tf.image.random_flip_left_right, num_parallel_calls=4)
         .map(tf.image.random_flip_up_down, num_parallel_calls=4)
         .map(rotate, num_parallel_calls=4)
-        .batch(batch_size)
-        .prefetch(1)
     )
     ntrain = int(0.7 * nsamples)
     nval = int(0.15 * nsamples)
     
-    train_dataset = dataset.take(ntrain)
-    val_dataset = dataset.skip(ntrain).take(nval)
-    test_dataset = dataset.skip(ntrain + nval)
+    train_dataset = dataset.take(ntrain).batch(batch_size, drop_remainder=True).prefetch(1)
+    val_dataset = dataset.skip(ntrain).take(nval).batch(batch_size, drop_remainder=True).prefetch(1)
+    test_dataset = dataset.skip(ntrain + nval).batch(batch_size, drop_remainder=True).prefetch(1)
     dataset_info = {
         'ntrain': ntrain,
         'nval': nval, 

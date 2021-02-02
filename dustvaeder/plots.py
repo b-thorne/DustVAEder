@@ -10,11 +10,11 @@ import matplotlib.pyplot as plt
 import cosmoplotian
 import cosmoplotian.colormaps
 import matplotlib as mpl
-string_cmap = "div yel grn"
-#string_cmap = "RdYlBu"
+#string_cmap = "div yel grn"
+string_cmap = "RdYlBu"
 cmap = mpl.cm.get_cmap(string_cmap)
 mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=[cmap(0.2), "k", "red"]) 
-plt.rcParams['text.usetex'] = True
+#plt.rcParams['text.usetex'] = True
 from matplotlib import patheffects
 from matplotlib import text
 
@@ -43,7 +43,7 @@ def make_prior_sample_plot(arr1, title=""):
         'aspect': 'auto',
         'interpolation': 'nearest',
         'origin': 'lower',
-        'cmap': 'div yel grn',
+        'cmap': 'RdYlBu',
         'vmin': -3,
         'vmax': 3
     }
@@ -70,7 +70,7 @@ def make_prior_sample_plot(arr1, title=""):
     cbar.set_label("Dimensionless log scaled emission")
     return fig, axes
 
-def make_prediction_plot_with_residuals(arr1, arr2, title):
+def make_prediction_plot_with_residuals(arr1, arr2, title, vlims=[-3, 3]):
     # assume direct output of model prediction with shape (n_batch, x, y, n_channel)
     assert arr1.ndim == 4
     assert arr2.ndim == 4
@@ -90,28 +90,28 @@ def make_prediction_plot_with_residuals(arr1, arr2, title):
         'aspect': 'auto',
         'interpolation': 'nearest',
         'origin': 'lower',
-        'cmap': 'div yel grn',
-        'vmin': -1,
-        'vmax': 1
+        'cmap': 'RdYlBu',
+        'vmin': vlims[0],
+        'vmax': vlims[-1]
     }
     
     fig.suptitle(title)
-    axes[0, 0].imshow(arr1[0, :, :, 1], **kwds)
+    axes[0, 0].imshow(arr1[0, :, :, 0], **kwds)
     axes[0, 0].set_ylabel("$y~{\\rm [^\\circ]}$")
-    axes[0, 1].imshow(arr1[1, :, :, 1], **kwds)
-    axes[0, 2].imshow(arr1[2, :, :, 1], **kwds)
-    axes[1, 0].imshow(arr2[0, :, :, 1], **kwds)
+    axes[0, 1].imshow(arr1[1, :, :, 0], **kwds)
+    axes[0, 2].imshow(arr1[2, :, :, 0], **kwds)
+    axes[1, 0].imshow(arr2[0, :, :, 0], **kwds)
     axes[1, 0].set_ylabel("$y~{\\rm [^\\circ]}$")
     axes[2, 0].set_ylabel("$y~{\\rm [^\\circ]}$")
     
-    img = axes[1, 1].imshow(arr2[1, :, :, 1], **kwds)
-    img = axes[1, 2].imshow(arr2[2, :, :, 1], **kwds)
+    img = axes[1, 1].imshow(arr2[1, :, :, 0], **kwds)
+    img = axes[1, 2].imshow(arr2[2, :, :, 0], **kwds)
     
-    axes[2, 0].imshow(residuals[0, :, :, 1], **kwds)
+    axes[2, 0].imshow(residuals[0, :, :, 0], **kwds)
     axes[2, 0].set_xlabel("$x~{\\rm [^\\circ]}$")
-    axes[2, 1].imshow(residuals[1, :, :, 1], **kwds)
+    axes[2, 1].imshow(residuals[1, :, :, 0], **kwds)
     axes[2, 1].set_xlabel("$x~{\\rm [^\\circ]}$")
-    axes[2, 2].imshow(residuals[2, :, :, 1], **kwds)
+    axes[2, 2].imshow(residuals[2, :, :, 0], **kwds)
     axes[2, 2].set_xlabel("$x~{\\rm [^\\circ]}$")
     
     for ax in axes.flatten():
@@ -127,7 +127,7 @@ def make_prediction_plot_with_residuals(arr1, arr2, title):
     cbax = fig.add_axes([0.93, 0.1, 0.02, 0.8])
     cbar = fig.colorbar(img, cax=cbax)
 
-    cbar.set_ticks([-1, 0, 1])
+    #cbar.set_ticks(np.linspace(*vlims, sum([abs(f) for f in vlims])+1))
     cbar.set_label(r"{\rm Dimensionless log scaled emission}")
     return fig, axes
 
