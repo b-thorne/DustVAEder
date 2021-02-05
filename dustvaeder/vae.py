@@ -14,6 +14,7 @@ import tensorflow_datasets as tfds
 from tensorflow.keras.initializers import GlorotUniform as glorot_uniform
 
 from pathlib import Path
+import pickle
 
 from datasets import load_dataset
 from utils import rotate
@@ -29,10 +30,11 @@ FLAGS = flags.FLAGS
 PROJECT_DIR = Path(os.path.dirname(__file__))
 RESULTS_DIR = "/global/cscratch1/sd/bthorne/dustvaeder/results"
 
-
-def ConvBatchLayer(x, filters, kernel_size, strides, activation='relu', padding='same', bn_axis=-1, kernel_initializer=glorot_uniform, momentum=0.9):
+@gin.configurable("ConvBatchLayer", denylist=["x"])
+def ConvBatchLayer(x, filters, kernel_size, strides, activation=tf.nn.relu, padding='same', bn_axis=-1, kernel_initializer=glorot_uniform, momentum=0.9):
     x = tfkl.Conv2D(filters, kernel_size, strides=strides, padding=padding, activation=None, kernel_initializer=kernel_initializer())(x)
     x = tfkl.BatchNormalization(momentum=momentum, axis=bn_axis)(x)
+    print(activation)
     x = tfkl.Activation(activation)(x)
     return x
 
@@ -114,7 +116,7 @@ def ResNetConvBlock(x, filters, kernel_size, s=2):
 def ResNetEncoder(input_shape, latent_dimension):
     x_input = tfkl.Input(input_shape)
 
-    x = tfkl.Conv2D(64, (1, 1), strides=(2, 2), kernel_initializer=glorot_uniform(seed=0))(x_input)
+    x = tfkl.Conv2D(64, (3, 3), strides=(2, 2), kernel_initializer=glorot_uniform(seed=0))(x_input)
     x = tfkl.BatchNormalization()(x)
     x = tfkl.Activation('relu')(x)
     x = tfkl.MaxPooling2D((3, 3), strides=(2, 2))(x)
@@ -146,6 +148,19 @@ def ResNetEncoder(input_shape, latent_dimension):
 
     return tfk.Model(inputs=x_input, outputs=x, name='ResNet50')
 
+
+def IAF(latent_dimension):
+    # Implementation of Inverse Autoregressive Flow similar to that outlined in
+    # https://arxiv.org/abs/1606.04934
+    tfd.TransformedDistribution(
+        distribution=tfd.Sample(tfd.Normal(loc=0., scale=1.), sample_shape=[dims]),
+            bijector=tfb.Invert(tfb.MaskedAutoregressiveFlow(
+                shift_and_log_scale_fn=tfb.AutoregressiveNetwork(
+                    params=2, hidden_units=[512, 512])
+                    )
+            )
+                    )
+    return
 
 @gin.configurable("VAE")
 class VAE(tf.keras.Model):
@@ -266,15 +281,27 @@ def Eval(test_dataset, results_dir, vae):
 
         fig, ax = plots.make_prediction_plot_with_residuals(truths[..., 2:], predictions[..., 2:], "", vlims=[-0.5, 0.5])
         fig.savefig(results_dir / "U_recon_w_res.pdf", bbox_inches="tight")
-    #fig, ax = plts.make_prior_sample_plot(prior_sample)
-    #fig.savefig(plot_dir / "prior_sample.pdf")
+
+    samples = vae._decoder(vae.prior.sample(3)).mean().numpy()
+    fig, ax = plots.make_prior_sample_plot(samples[..., :1])
+    fig.savefig(results_dir / "T_sample.pdf", bbox_inches='tight')
+    if batch.shape[-1] == 3:
+        fig, ax = plots.make_prior_sample_plot(samples[..., 1:2])
+        fig.savefig(results_dir / "Q_sample.pdf", bbox_inches='tight')
+        fig, ax = plots.make_prior_sample_plot(samples[..., 2:])
+        fig.savefig(results_dir / "U_sample.pdf", bbox_inches='tight')
+
+    history = pickle.load(open(results_dir / 'history.pkl', "rb"))
+    print(history)
+    fig, ax = plots.history_plot(history, ["reconstruction_loss", "kl_loss", "neg_elbo"])
+    fig.savefig(results_dir / "training_history.pdf", bbox_inches='tight')
     return eval_results
 
 @gin.configurable("Train", denylist=["train_dataset", "val_dataset"])
 def Train(train_dataset, val_dataset, vae, optimizer=tfk.optimizers.Adam, epochs=2):
     vae.compile(optimizer=optimizer)
     history = vae.fit(train_dataset, epochs=epochs, validation_data=val_dataset)   
-    return vae
+    return vae, history
 
 @gin.configurable("Load", denylist=["saved_model_path"])
 def Load(saved_model_path, vae, optimizer=tfk.optimizers.Adam):
@@ -306,17 +333,21 @@ def main(argv):
 
     if FLAGS.mode == "standard":
         # perform training
-        vae = Train(train_dataset, val_dataset)
+        vae, history = Train(train_dataset, val_dataset)
         # save trained model
         vae.save_weights(saved_model_path, save_format='tf')
+        with open(results_dir_plot / "history.pkl", 'wb') as f:
+            pickle.dump(history.history, f) 
         # evaluate trained model 
         Eval(test_dataset, results_dir_plot, vae)
 
     if FLAGS.mode == "training":
         # perform training
-        vae = Train(train_dataset, val_dataset)
+        vae, history = Train(train_dataset, val_dataset)
         # save trained model
-        vae.save_weights(saved_model_path, save_format='tf') 
+        vae.save_weights(saved_model_path, save_format='tf')
+        with open(results_dir_plot / "history.pkl", 'wb') as f:
+            pickle.dump(history.history, f) 
 
     if FLAGS.mode == "eval":
         # evaluate pre-trained model

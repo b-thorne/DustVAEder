@@ -36,7 +36,7 @@ def make_prior_sample_plot(arr1, title=""):
     # assume 4 samples
     assert arr1.shape[0] == 3
     
-    fig, axes = plt.subplots(ncols=3, nrows=1, dpi=150, figsize=(7, 3), sharex=True, sharey=True)
+    fig, axes = plt.subplots(ncols=3, nrows=1, dpi=150, figsize=(5, 5./3.), sharex=True, sharey=True)
 
     kwds = {
         'extent': [-4, 4, -4, 4],
@@ -273,4 +273,14 @@ def make_missing_window_plot(arr, title):
 
     cbar.set_ticks([-3, -2, -1, 0, 1, 2, 3])
     cbar.set_label(r"{\rm Dimensionless log-scaled emission}")
+    return fig, ax
+
+def history_plot(history, keys):
+    fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+    for k in keys:
+        l1, = ax.plot(history[k], label=k)
+        ax.plot(history['val_'+k], color=l1.get_color(), linestyle="--")
+    ax.legend()
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Metric")
     return fig, ax

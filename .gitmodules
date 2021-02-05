@@ -1,0 +1,3 @@
+[submodule "GNILC_CVAE_Paper"]
+	path = GNILC_CVAE_Paper
+	url = git@github.com:bthorne93/GNILC_CVAE_Paper.git
