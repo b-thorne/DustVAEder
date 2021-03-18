@@ -10,7 +10,6 @@ import numpy as np
 
 import tensorflow as tf
 import tensorflow_probability as tfp
-import tensorflow_datasets as tfds
 from tensorflow.keras.initializers import GlorotUniform as glorot_uniform
 
 from pathlib import Path
@@ -19,6 +18,11 @@ import pickle
 from datasets import load_dataset
 from utils import rotate
 import plots 
+
+try:
+    import pymaster as nmt
+except ImportError:
+    print("Continuing without NaMaster")
 
 tfkl = tf.keras.layers
 tfk = tf.keras
@@ -259,13 +263,41 @@ def make_21011181_plots(test_dataset, vae):
     fig, ax = plots.make_prior_sample_plot(prior_sample)
     fig.savefig("prior_sample.pdf", bbox_inches="tight")
 
+
+def Spectra(aposize=1.):
+    Lx = 8 * np.pi / 180.
+    Ly = 8 * np.pi / 180.
+    Nx = 256
+    Ny = 256
+    mask = np.ones((256, 256)).flatten()
+    xarr = np.ones(Ny)[:, None] * np.arange(Nx)[None, :] * Lx/Nx
+    yarr = np.ones(Nx)[None, :] * np.arange(Ny)[:, None] * Ly/Ny
+
+    f = 200.
+    mask[np.where(xarr.flatten() < Lx / f)] = 0
+    mask[np.where(xarr.flatten() > (f - 1) * Lx / f)] = 0
+    mask[np.where(yarr.flatten() < Ly / f)] = 0
+    mask[np.where(yarr.flatten() > (f - 1) * Ly / f)] = 0
+    mask = mask.reshape([Ny, Nx])
+    mask = nmt.mask_apodization_flat(mask, Lx, Ly, aposize=aposize, apotype="C1")
+
+    l0_bins = np.arange(Nx/4) * 4 * np.pi/Lx
+    lf_bins = (np.arange(Nx/4)+1) * 4 * np.pi/Lx
+
+    b = nmt.NmtBinFlat(l0_bins, lf_bins, isDell=True)
+    f0 = nmt.NmtFieldFlat(Lx, Ly, mask, np.random.randn(256, 256))
+    w00 = nmt.NmtWorkspaceFlat()
+    w00.compute_coupling_matrix(f0, f0, b)
+    return
+
+
 @gin.configurable("Dataset")
 def Dataset(label, batch_size, seed=1234):
     tf.random.set_seed(seed)
     return load_dataset(label, batch_size)
 
 @gin.configurable("Eval", denylist=["test_dataset", "results_dir"])
-def Eval(test_dataset, results_dir, vae):
+def Eval(test_dataset, train_dataset, results_dir, data_dir, vae):
     eval_results = vae.evaluate(test_dataset)
 
     batch = next(iter(test_dataset))
@@ -292,10 +324,73 @@ def Eval(test_dataset, results_dir, vae):
         fig.savefig(results_dir / "U_sample.pdf", bbox_inches='tight')
 
     history = pickle.load(open(results_dir / 'history.pkl', "rb"))
-    print(history)
     fig, ax = plots.history_plot(history, ["reconstruction_loss", "kl_loss", "neg_elbo"])
     fig.savefig(results_dir / "training_history.pdf", bbox_inches='tight')
+
+    # Now process all of the test and train set images. Too slow to do 
+    # on the fly on CPU. Really need to figure out how to get NaMaster
+    # to work in a kernel with GPU-based TF.
+    predicted_test = []
+    true_test = []
+    for x in test_dataset:
+        predicted_test.append(vae(x).mean().numpy())
+        true_test.append(x.numpy())
+    predicted_test = np.concatenate(predicted_test)
+    true_test = np.concatenate(true_test)
+
+    predicted_train = []
+    true_train = []
+    for x in train_dataset:
+        predicted_train.append(vae(x).mean().numpy())
+        true_train.append(x.numpy())
+    predicted_train = np.concatenate(predicted_train)
+    true_train = np.concatenate(true_train)
+
+    np.save(data_dir / "test_true.npy", true_test)
+    np.save(data_dir / "test_predicted.npy", predicted_test)
+
+    np.save(data_dir / "train_true.npy", true_train)
+    np.save(data_dir / "train_predicted.npy", predicted_train)
     return eval_results
+
+def make_semantic_sequence_dataset(test_dataset, vae):
+    testset = []
+    for x in test_dataset:
+        testset.append(x.numpy())
+    testset = np.concatenate(testset)
+
+    np.random.seed(192)
+    i1 = np.random.randint(0, testset.shape[0])
+    i2 = np.random.randint(0, testset.shape[0])
+    print(testset.shape)
+    test_map1 = testset[[i1]]
+    test_map2 = testset[[i2]]
+
+    print(vae._encoder(test_map1))
+
+    z_mu_i1 = vae._encoder(test_map1)
+    z_mu_i2 = vae._encoder(test_map2)
+
+    print(z_mu_i1.mean())
+    print(z_mu_i2.mean())
+
+    z_interp = spherical_interpolation(z_mu_i1.mean().numpy()[0], z_mu_i2.mean().numpy()[0], num_samples=100)
+
+    decoded_interpolated_vectors = vae._decoder(z_interp)
+    print(test_map1.shape)
+    print(test_map2.shape)
+    print(decoded_interpolated_vectors.shape)
+    semantic_sequence = np.concatenate((test_map1, decoded_interpolated_vectors.mean().numpy(), test_map2))
+    np.save("/global/cscratch1/sd/bthorne/dustvaeder/semantic_interpolation_block.npy", semantic_sequence)
+    return
+
+def spherical_interpolation(z1, z2, num_samples=4):
+    """ Function to interpolate between two Cartesian vectors, :math:`z1` and :math:`z2`,
+    assuming a standard normal prior.
+    """
+    lamb = np.linspace(0, 1, num_samples)
+    theta = np.dot(z1, z2) * np.pi / 180.
+    return np.sin(theta * (1 - lamb[:, None])) / np.sin(theta) * z1[None, :] + np.sin(lamb[:, None] * theta) / np.sin(theta) * z2[None, :]
 
 @gin.configurable("Train", denylist=["train_dataset", "val_dataset"])
 def Train(train_dataset, val_dataset, vae, optimizer=tfk.optimizers.Adam, epochs=2):
@@ -339,7 +434,7 @@ def main(argv):
         with open(results_dir_plot / "history.pkl", 'wb') as f:
             pickle.dump(history.history, f) 
         # evaluate trained model 
-        Eval(test_dataset, results_dir_plot, vae)
+        Eval(test_dataset, train_dataset, results_dir_plot, results_dir_data, vae)
 
     if FLAGS.mode == "training":
         # perform training
@@ -352,7 +447,14 @@ def main(argv):
     if FLAGS.mode == "eval":
         # evaluate pre-trained model
         vae = Load(saved_model_path, gin.REQUIRED)
-        Eval(test_dataset, results_dir_plot, vae)
+        eval_results = Eval(test_dataset, train_dataset, results_dir_plot, results_dir_data, vae)
+
+    if FLAGS.mode == "spectra":
+        Spectra()
+
+    if FLAGS.mode == "semantic":
+        vae = Load(saved_model_path, gin.REQUIRED)
+        make_semantic_sequence_dataset(test_dataset, vae)
 
     if FLAGS.mode == "2101.11181":
         # make plots for paper arXiv:2101.11181
@@ -364,7 +466,7 @@ def main(argv):
 
 if __name__ == "__main__":
     flags.DEFINE_enum("dataset", "GNILC", ["GNILC", "MHD"], "Which dataset to use.")
-    flags.DEFINE_enum("mode", "standard", ["standard", "training", "eval", "2101.11181"],  
+    flags.DEFINE_enum("mode", "standard", ["standard", "training", "eval", "spectra", "semantic", "2101.11181"],  
         "Which mode to run in. Standard will train the model, and run the evaluations.")
     flags.DEFINE_string("results_name", "default", "Directory to be created for results.")
     flags.DEFINE_string("gin_config", "./configs/config.gin", "File containing the gin configuration.")
