@@ -100,7 +100,7 @@ python3-nersc-modster==0.3.0
 python3-nersc-sitecustomize==0.2.0
 python3-nerscjson==0.9
 pytz==2020.1
-PyYAML==5.3.1
+PyYAML==5.4
 pyzmq==18.1.1
 reproject==0.7.1
 requests==2.22.0
