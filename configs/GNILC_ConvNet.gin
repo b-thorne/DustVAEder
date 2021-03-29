@@ -4,7 +4,7 @@ Dataset.label = "GNILC"
 Dataset.seed = 1234
 Dataset.batch_size = 8
 
-Train.vae = @VAE()
+Train.model = @VAE()
 VAE.input_shape = (256, 256, 1)
 VAE.latent_dimension = 256
 VAE.encoder_type = "conv"
