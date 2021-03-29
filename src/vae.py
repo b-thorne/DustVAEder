@@ -38,7 +38,6 @@ RESULTS_DIR = "/global/cscratch1/sd/bthorne/dustvaeder/results"
 def ConvBatchLayer(x, filters, kernel_size, strides, activation=tf.nn.relu, padding='same', bn_axis=-1, kernel_initializer=glorot_uniform, momentum=0.9):
     x = tfkl.Conv2D(filters, kernel_size, strides=strides, padding=padding, activation=None, kernel_initializer=kernel_initializer())(x)
     x = tfkl.BatchNormalization(momentum=momentum, axis=bn_axis)(x)
-    print(activation)
     x = tfkl.Activation(activation)(x)
     return x
 
@@ -86,6 +85,14 @@ def ConvEncoder(input_shape, num_filters_top=256, kernel_size=4, latent_dimensio
     x = tfkl.Flatten()(x)
     x = tfkl.Dense(tfpl.IndependentNormal.params_size(latent_dimension), activation=None)(x)
     x = tfpl.IndependentNormal(latent_dimension)(x)
+    return tfk.Model(inputs=inputs, outputs=x, name="conv_encoder")
+
+@gin.configurable("conv_encoder_ae")
+def ConvEncoderAE(input_shape, num_filters_top=256, kernel_size=4, latent_dimension=256):
+    inputs = tfk.Input(shape=input_shape)
+    x = ConvBlock(inputs, filters=num_filters_top)
+    x = tfkl.Flatten()(x)
+    x = tfkl.Dense(latent_dimension, activation=None)(x)
     return tfk.Model(inputs=inputs, outputs=x, name="conv_encoder")
 
 def ResNetIdentityBlock(x, filters, kernel_size):
@@ -187,7 +194,7 @@ class VAE(tf.keras.Model):
         self.prior = tfd.Independent(tfd.Normal(loc=tf.zeros(latent_dimension), scale=1), reinterpreted_batch_ndims=1)
 
         if encoder_type == "conv":
-            self._encoder = ConvEncoder(input_shape)
+            self._encoder = ConvEncoder(input_shape, latent_dimension=latent_dimension)
         if encoder_type == "ResNet":
             self._encoder = ResNetEncoder(input_shape, latent_dimension)
 
@@ -247,6 +254,68 @@ class VAE(tf.keras.Model):
             'kl_loss': self.kl_loss_tracker.result()
         }
 
+
+@gin.configurable("AE")
+class AE(tf.keras.Model):
+    def __init__(
+            self,
+            input_shape=(256, 256, 1), 
+            latent_dimension=256,
+            num_filters_top=256,
+            nfilters_top=512, 
+            encoder_type="conv", 
+            decoder_type="transconv",
+            name="AE"):
+        super(AE, self).__init__(name=name)
+
+        self.mse_loss_tracker = tfk.metrics.Mean(name="mse")
+
+        if encoder_type == "conv":
+            self._encoder = ConvEncoderAE(input_shape, num_filters_top=num_filters_top, latent_dimension=latent_dimension)
+        if encoder_type == "ResNet":
+            self._encoder = ResNetEncoder(input_shape, latent_dimension)
+
+        if decoder_type == "transconv": 
+            self._decoder = TransConvDecoder(latent_dimension, input_shape, nfilters_top=nfilters_top)
+
+        return 
+
+    def call(self, x):
+        encoded_vector = self._encoder(x)
+        return self._decoder(encoded_vector)
+
+    @property
+    def metrics(self):
+        return [
+            self.mse_loss_tracker,
+        ]
+
+    def calculate_loss(self, x):
+        encoded_vector = self._encoder(x)
+        decoded_image = self._decoder(encoded_vector)
+        mse_loss = tfk.losses.MSE(decoded_image, x)
+        return mse_loss
+
+    def train_step(self, x):
+        with tf.GradientTape() as tape:
+            mse_loss = self.calculate_loss(x)
+
+        self.mse_loss_tracker.update_state(mse_loss)
+
+        grads = tape.gradient(mse_loss, self.trainable_weights)
+        self.optimizer.apply_gradients(zip(grads, self.trainable_weights))
+        return {
+            'mse_loss': self.mse_loss_tracker.result(),
+        }
+
+    def test_step(self, x):
+        mse_loss = self.calculate_loss(x)
+        self.mse_loss_tracker.update_state(mse_loss)           
+        return {
+            'mse_loss': self.mse_loss_tracker.result(),
+        }
+
+
 def make_21011181_plots(test_dataset, vae):
     
     dr = iter(test_dataset)
@@ -264,12 +333,10 @@ def make_21011181_plots(test_dataset, vae):
     fig.savefig("prior_sample.pdf", bbox_inches="tight")
 
 
-def Spectra(aposize=1.):
-    Lx = 8 * np.pi / 180.
-    Ly = 8 * np.pi / 180.
-    Nx = 256
-    Ny = 256
-    mask = np.ones((256, 256)).flatten()
+def Spectra(Lx=8, Ly=8, Nx=256, Ny=256, aposize=1.):
+    Lx = np.deg2rad(Lx)
+    Ly = np.deg2rad(Ly)
+    mask = np.ones((Nx, Ny)).flatten()
     xarr = np.ones(Ny)[:, None] * np.arange(Nx)[None, :] * Lx/Nx
     yarr = np.ones(Nx)[None, :] * np.arange(Ny)[:, None] * Ly/Ny
 
@@ -281,15 +348,26 @@ def Spectra(aposize=1.):
     mask = mask.reshape([Ny, Nx])
     mask = nmt.mask_apodization_flat(mask, Lx, Ly, aposize=aposize, apotype="C1")
 
-    l0_bins = np.arange(Nx/4) * 4 * np.pi/Lx
-    lf_bins = (np.arange(Nx/4)+1) * 4 * np.pi/Lx
+    l0_bins = np.arange(Nx / 4) * 4 * np.pi / Lx
+    lf_bins = (np.arange(Nx / 4) + 1) * 4 * np.pi / Lx
 
-    b = nmt.NmtBinFlat(l0_bins, lf_bins, isDell=True)
-    f0 = nmt.NmtFieldFlat(Lx, Ly, mask, np.random.randn(256, 256))
+    b = nmt.NmtBinFlat(l0_bins, lf_bins)
+    f0 = nmt.NmtFieldFlat(Lx, Ly, mask, np.random.randn(1, Nx, Ny))
     w00 = nmt.NmtWorkspaceFlat()
     w00.compute_coupling_matrix(f0, f0, b)
     return
 
+def NmtTTSpectra(dataset, Lx, Ly, mask, binning):
+    """ Get TT spectra of images (assumed shape (nsamples, xdim, ydim, nchannels))
+    """
+    N = dataset.shape[0]
+    cl = np.zeros((N, binning.get_n_bands()))
+    for i in range(N):
+        f0 = nmt.NmtFieldFlat(Lx, Ly, mask, [dataset[i, :, :, 0]])
+        cl00_coupled = nmt.compute_coupled_cell_flat(f0, f0, b)
+        cl00_uncoupled = w00.decouple_cell(cl00_coupled)
+        cl[i] = cl00_uncoupled
+    return cl
 
 @gin.configurable("Dataset")
 def Dataset(label, batch_size, seed=1234):
@@ -362,24 +440,12 @@ def make_semantic_sequence_dataset(test_dataset, vae):
     np.random.seed(192)
     i1 = np.random.randint(0, testset.shape[0])
     i2 = np.random.randint(0, testset.shape[0])
-    print(testset.shape)
     test_map1 = testset[[i1]]
     test_map2 = testset[[i2]]
-
-    print(vae._encoder(test_map1))
-
     z_mu_i1 = vae._encoder(test_map1)
     z_mu_i2 = vae._encoder(test_map2)
-
-    print(z_mu_i1.mean())
-    print(z_mu_i2.mean())
-
     z_interp = spherical_interpolation(z_mu_i1.mean().numpy()[0], z_mu_i2.mean().numpy()[0], num_samples=100)
-
     decoded_interpolated_vectors = vae._decoder(z_interp)
-    print(test_map1.shape)
-    print(test_map2.shape)
-    print(decoded_interpolated_vectors.shape)
     semantic_sequence = np.concatenate((test_map1, decoded_interpolated_vectors.mean().numpy(), test_map2))
     np.save("/global/cscratch1/sd/bthorne/dustvaeder/semantic_interpolation_block.npy", semantic_sequence)
     return
@@ -393,10 +459,10 @@ def spherical_interpolation(z1, z2, num_samples=4):
     return np.sin(theta * (1 - lamb[:, None])) / np.sin(theta) * z1[None, :] + np.sin(lamb[:, None] * theta) / np.sin(theta) * z2[None, :]
 
 @gin.configurable("Train", denylist=["train_dataset", "val_dataset"])
-def Train(train_dataset, val_dataset, vae, optimizer=tfk.optimizers.Adam, epochs=2):
-    vae.compile(optimizer=optimizer)
-    history = vae.fit(train_dataset, epochs=epochs, validation_data=val_dataset)   
-    return vae, history
+def Train(train_dataset, val_dataset, model, optimizer=tfk.optimizers.Adam, epochs=2):
+    model.compile(optimizer=optimizer)
+    history = model.fit(train_dataset, epochs=epochs, validation_data=val_dataset)   
+    return model, history
 
 @gin.configurable("Load", denylist=["saved_model_path"])
 def Load(saved_model_path, vae, optimizer=tfk.optimizers.Adam):
@@ -422,7 +488,6 @@ def main(argv):
     with open(results_dir_plot / "config.gin", "w") as f:
         f.write(gin.operative_config_str())
 
-
     # Get dataset
     train_dataset, val_dataset, test_dataset, dataset_info = Dataset()
 
@@ -436,11 +501,19 @@ def main(argv):
         # evaluate trained model 
         Eval(test_dataset, train_dataset, results_dir_plot, results_dir_data, vae)
 
-    if FLAGS.mode == "training":
+    if FLAGS.mode == "train_vae":
         # perform training
         vae, history = Train(train_dataset, val_dataset)
         # save trained model
         vae.save_weights(saved_model_path, save_format='tf')
+        with open(results_dir_plot / "history.pkl", 'wb') as f:
+            pickle.dump(history.history, f) 
+
+    if FLAGS.mode == "train_pae":
+        # perform training
+        ae, history = Train(train_dataset, val_dataset)
+        # save trained model
+        pae.save_weights(saved_model_path, save_format='tf')
         with open(results_dir_plot / "history.pkl", 'wb') as f:
             pickle.dump(history.history, f) 
 

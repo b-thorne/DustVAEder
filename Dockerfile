@@ -21,4 +21,5 @@ RUN python -m pip install pip numpy ipython jupyter
 RUN python -m pip install --upgrade astropy healpy toml
 RUN python -m pip install --upgrade cosmoplotian
 RUN python -m pip install --upgrade pymaster
-RUN python -m pip install --upgrade gin-config, absl-py
+RUN python -m pip install --upgrade gin-config absl-py
+RUN python -m pip install --upgrade tensorflow-probability==0.11
