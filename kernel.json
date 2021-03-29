@@ -1,13 +1,13 @@
 {
     "argv": [
         "shifter",
-        "--image=bthorne93/tensorflow:pymaster-v6",
+        "--image=bthorne93/dustvaeder",
         "/usr/bin/python",
         "-m",
         "ipykernel_launcher",
         "-f",
         "{connection_file}"
     ],
-    "display_name": "shifter-tf-pymaster-v6",
+    "display_name": "dustvaeder",
     "language": "python"
 }

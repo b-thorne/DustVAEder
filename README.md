@@ -4,9 +4,9 @@ Models and datasets for generative foreground modeling.
 
 ## Instructions
 
-You can see the requirements in the [`requirements.txt`](./requirements.txt) file. 
+The suggested way to run this code is through Docker, see below for instructions. 
 
-Once you have installed the necessary packages, run files in `dustvaeder/` individually. For example, to preprocess the required datasets, run `python dustvaeder/datasets.py`. In order to run analysis, run `python dustvaeder.py`. Each of these scripts is configurable, see the source for details. (N.B, if you would like to train any of the models here, a GPU will be necessary.)
+The code is designed to run files in `src/` individually, rather than being imported. For example, to preprocess the required datasets, run `python src/datasets.py`.  Each of these scripts is configurable, see the source for details. (N.B, if you would like to train any of the models here, a GPU will be necessary.)
 
 ## On NERSC
 
@@ -15,49 +15,32 @@ In order to run on NERSC, if you have access to the GPU queue, you can run with 
 ```bash
 module load cgpu
 salloc -C gpu -t 60 -c 10 -G 1 -q interactive -A m1759
-module load tensorflow/gpu-2.2.0-py37
-srun python dustvaeder/vae.py
+srun shifter --image=bthorne93/dustvaeder /bin/bash
+python src/vae.py --mode standard 
 ```
 
-### GPU Tensorflow and NaMaster
+## Docker / Shifter
 
-We need NaMaster in order to calculate power spectra:
+We provide a Dockerfile for the environment used in this analysis. This can be built from `./Dockerfile`, or pulled from DockerHub at `bthorne93/dustvaeder`. 
+
+## Jupyter kernel
+
+The file `kernel.json` provided is also useful for using this image in jupyter kenels. On NERSC copy it to:
 
 ```
-conda install -c conda-forge namaster
+~/.local/share/jupyter/kernels/<my-shifter-kernel>/kernel.json
 ```
-
-We also need GPU-based Tensorflow. However, I have had a lot of trouble getting NaMaster in the same environment as GPU-able TF. There is no pip version of NaMaster, and so we have to use conda. However, when following the NERSC instructions for custom conda installations of Tensorflow, I get a rather obscure error, even when just trying to install for CPU. 
-
-The upshot is that I have to run powerspectrum calculations with a different kernel to GPU tensorflow calculations, which is very inconvenient, and results in a bunch of intermediate data products being saved to disk.
 
 # Datasets
 
-There are two available datasets so far.
-
 * Planck GNILC 545 GHz. The 545 GHz GNILC map is processed as described in [arXiv:2101.11181](https://arxiv.org/abs/2101.11181). 
-* MHD simulations: . 
 
 # Models
 
-## Encoder Models
-
 * *Convolutional Autoencoder*: this model is described in the paper [arXiv:2101.11181](https://arxiv.org/abs/2101.11181).
 * *VAE with ResNet encoder*: this is a similar model using a ResNet model for the encoder.
-
-## Decoder Models
 
 ## Normalizing Flows
 
 * *IAF*: this is an implementation of the inverse autoregressive flow model described in [arXiv:1502/03509](https://arxiv.org/abs/1502.03509).
 
-
-# Docker / Shifter
-
-We provide a Dockerfile building the image used in this analysis. This can be built, or pulled from DockerHub at `bthorne93/tensorflow:pymaster-v6`. 
-
-The kernel file provided is also useful for using this image in jupyter kenels. on NERSC copy it to:
-
-```
-~/.local/share/jupyter/kernels/<my-shifter-kernel>/kernel.json
-```
