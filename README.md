@@ -50,3 +50,14 @@ There are two available datasets so far.
 ## Normalizing Flows
 
 * *IAF*: this is an implementation of the inverse autoregressive flow model described in [arXiv:1502/03509](https://arxiv.org/abs/1502.03509).
+
+
+# Docker / Shifter
+
+We provide a Dockerfile building the image used in this analysis. This can be built, or pulled from DockerHub at `bthorne93/tensorflow:pymaster-v6`. 
+
+The kernel file provided is also useful for using this image in jupyter kenels. on NERSC copy it to:
+
+```
+~/.local/share/jupyter/kernels/<my-shifter-kernel>/kernel.json
+```
