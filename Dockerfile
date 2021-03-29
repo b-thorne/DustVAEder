@@ -23,3 +23,4 @@ RUN python -m pip install --upgrade cosmoplotian
 RUN python -m pip install --upgrade pymaster
 RUN python -m pip install --upgrade gin-config absl-py
 RUN python -m pip install --upgrade tensorflow-probability==0.11
+RUN python -m pip install --upgrade seaborn
