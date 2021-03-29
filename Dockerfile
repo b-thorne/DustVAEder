@@ -17,7 +17,7 @@ RUN apt-get update && apt-get install -y \
         libchealpix-dev            
 
 # install various python packages
-RUN python -m pip install pip numpy ipython jupyter
+RUN python -m pip install pip numpy ipython ipykernel jupyter
 RUN python -m pip install --upgrade astropy healpy toml
 RUN python -m pip install --upgrade cosmoplotian
 RUN python -m pip install --upgrade pymaster
