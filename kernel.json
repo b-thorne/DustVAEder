@@ -1,0 +1,13 @@
+{
+    "argv": [
+        "shifter",
+        "--image=bthorne93/tensorflow:pymaster-v6",
+        "/usr/bin/python",
+        "-m",
+        "ipykernel_launcher",
+        "-f",
+        "{connection_file}"
+    ],
+    "display_name": "shifter-tf-pymaster-v6",
+    "language": "python"
+}
