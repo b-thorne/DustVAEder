@@ -6,6 +6,8 @@ RUN mkdir -p /software/lib/python3.6/site-packages
 ENV PIP_TARGET /software/lib/python3.6/site-packages
 ENV PYTHONPATH /software/lib/python3.6/site-packages:$PYTHONPATH
 
+COPY requirements.txt requirements.txt
+
 # get dependencies for namaster
 RUN apt-get update && apt-get install -y \
         automake                         \
