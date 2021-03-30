@@ -1,13 +1,13 @@
 {
     "argv": [
         "shifter",
-        "--image=bthorne93/dustvaeder",
+        "--image=bthorne93/dustvaeder:latest",
         "/usr/bin/python",
         "-m",
         "ipykernel_launcher",
         "-f",
         "{connection_file}"
     ],
-    "display_name": "dustvaeder",
+    "display_name": "shifter-dustvaeder",
     "language": "python"
 }
