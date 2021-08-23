@@ -1,6 +1,6 @@
 ipython==7.16.0
 ipykernel==5.5.0
-jupyterlab==3.0.12
+jupyterlab==3.0.17
 numpy==1.19.0
 healpy==1.14.0
 cosmoplotian
